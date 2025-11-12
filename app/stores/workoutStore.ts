@@ -1,23 +1,18 @@
 import { defineStore } from "pinia";
-import { computed, ref } from "vue";
+import { ref } from "vue";
 import axios from "axios";
-import type {
-  NutritionSummary,
-  MealPost,
-  MealResponse,
-} from "~/types/NutritionTypes";
+import type { WorkoutItem } from "~/types/WorkoutTypes";
 import { useLoginStore } from "~/stores/loginStore";
 
-export const useMealStore = defineStore("meal", () => {
-  const summary = ref<NutritionSummary | null>(null);
-  const meals = ref<MealResponse[]>([]);
+export const useWorkoutStore = defineStore("workout", () => {
+  const workouts = ref<WorkoutItem[]>([]);
   const loading = ref(false);
   const error = ref<string | null>(null);
   const lastLoadedAt = ref<string | null>(null);
 
-  const fetchTodaySummary = async (memberId: number) => {
-    if (!memberId) {
-      error.value = "회원 정보를 확인할 수 없습니다.";
+  const fetchDailyWorkouts = async (date?: string) => {
+    if (!date) {
+      error.value = "조회할 날짜가 필요합니다.";
       return;
     }
 
@@ -25,28 +20,27 @@ export const useMealStore = defineStore("meal", () => {
     error.value = null;
 
     try {
-      const response = await axios.get<NutritionSummary>("/meal", {
-        params: { id: memberId },
+      const response = await axios.get<WorkoutItem[]>("/workout", {
+        params: { date },
       });
-
-      summary.value = response.data;
+      workouts.value = response.data;
       lastLoadedAt.value = new Date().toISOString();
     } catch (err: unknown) {
       if (axios.isAxiosError(err)) {
         error.value =
           err.response?.data?.message ??
           err.response?.statusText ??
-          "데이터를 불러오지 못했습니다.";
+          "운동 정보를 불러오는 데 실패했습니다.";
       } else {
         error.value = "알 수 없는 오류가 발생했습니다.";
       }
-      summary.value = null;
+      workouts.value = [];
     } finally {
       loading.value = false;
     }
   };
 
-  const postMeal = async (mealData: MealPost) => {
+  const postWorkout = async (workoutData: Omit<WorkoutItem, 'id' | 'memberId'>) => {
     const loginStore = useLoginStore();
     const memberId = loginStore.user?.id;
 
@@ -59,21 +53,21 @@ export const useMealStore = defineStore("meal", () => {
     error.value = null;
 
     try {
+      // The backend expects memberId, so we add it to the payload.
       const payload = {
-        ...mealData,
+        ...workoutData,
         memberId: memberId,
       };
-      const response = await axios.post<MealResponse>("/meal", payload);
-      meals.value.push(response.data);
-      // After posting a new meal, you might want to refresh the summary
-      await fetchTodaySummary(memberId);
+      const response = await axios.post<WorkoutItem>("/workout", payload);
+      // Optionally, add the new workout to the local state
+      workouts.value.push(response.data);
       return response.data;
     } catch (err: unknown) {
       if (axios.isAxiosError(err)) {
         error.value =
-          err.response?.data?.message ??
-          err.response?.statusText ??
-          "식사 기록을 저장하는 데 실패했습니다.";
+            err.response?.data?.message ??
+            err.response?.statusText ??
+            "운동 기록을 저장하는 데 실패했습니다.";
       } else {
         error.value = "알 수 없는 오류가 발생했습니다.";
       }
@@ -83,28 +77,21 @@ export const useMealStore = defineStore("meal", () => {
     }
   };
 
+
   const reset = () => {
-    summary.value = null;
-    meals.value = [];
+    workouts.value = [];
+    loading.value = false;
     error.value = null;
     lastLoadedAt.value = null;
   };
 
-  const calorieBalance = computed(() => {
-    if (!summary.value) return null;
-    return summary.value.totalCalories - summary.value.burnedCalories;
-  });
-
   return {
-    summary,
-    meals,
+    workouts,
     loading,
     error,
     lastLoadedAt,
-    calorieBalance,
-
-    fetchTodaySummary,
-    postMeal,
+    fetchDailyWorkouts,
+    postWorkout,
     reset,
   };
 });

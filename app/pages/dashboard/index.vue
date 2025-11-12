@@ -3,17 +3,27 @@ import { computed, onMounted, watch } from "vue";
 import { storeToRefs } from "pinia";
 import { useLoginStore } from "~/stores/loginStore";
 import { useMealStore } from "~/stores/mealStore";
+import { useWorkoutStore } from "~/stores/workoutStore";
 
 const loginStore = useLoginStore();
 const mealStore = useMealStore();
+const workoutStore = useWorkoutStore();
 
 const { user, isLogin } = storeToRefs(loginStore);
 const { summary, loading, error, lastLoadedAt, calorieBalance } =
   storeToRefs(mealStore);
 
+const {
+  workouts,
+  loading: workoutLoading,
+  error: workoutError,
+  lastLoadedAt: workoutLastLoadedAt,
+} = storeToRefs(workoutStore);
+
 const numberFormatter = new Intl.NumberFormat("ko-KR", {
   maximumFractionDigits: 1,
 });
+
 const calorieFormatter = new Intl.NumberFormat("ko-KR", {
   maximumFractionDigits: 0,
 });
@@ -76,6 +86,36 @@ const formatDateTime = (isoString: string) => {
   }
 };
 
+const formatWorkoutSetInfo = (sets: number | null, reps: number | null) => {
+  if (sets == null && reps == null) return "-";
+  const setText = sets != null ? `${sets}세트` : "-세트";
+  const repText = reps != null ? `${reps}회` : "-회";
+  return `${setText} × ${repText}`;
+};
+
+const formatWorkoutWeight = (weight: number | null) => {
+  if (weight == null) return "-";
+  return `${formatNumber(weight, 1)} kg`;
+};
+
+const formatWorkoutDuration = (minutes: number | null) => {
+  if (minutes == null) return "-";
+  return `${formatNumber(minutes, 0)} 분`;
+};
+
+const formatWorkoutDistance = (distance: number | null) => {
+  if (distance == null) return "-";
+  return `${formatNumber(distance, 1)} km`;
+};
+
+const workoutLoadedAtText = computed(() =>
+  workoutLastLoadedAt.value ? formatDateTime(workoutLastLoadedAt.value) : null
+);
+
+const hasWorkoutData = computed(() => workouts.value.length > 0);
+
+const toDateParam = (date: Date) => date.toISOString().split("T")[0];
+
 const fetchSummary = async () => {
   const memberId = user.value?.id;
   console.log("memberId", memberId);
@@ -83,15 +123,29 @@ const fetchSummary = async () => {
   await mealStore.fetchTodaySummary(memberId);
 };
 
-const handleRefresh = () => {
+const fetchWorkouts = async (targetDate?: Date) => {
+  const memberId = user.value?.id;
+  if (!memberId) return;
+
+  const requestDate = targetDate
+    ? toDateParam(targetDate)
+    : toDateParam(new Date());
+  await workoutStore.fetchDailyWorkouts(requestDate);
+};
+
+const handleRefresh = async () => {
   if (!loading.value) {
-    fetchSummary();
+    await fetchSummary();
+  }
+  if (!workoutLoading.value) {
+    await fetchWorkouts();
   }
 };
 
 onMounted(() => {
   if (import.meta.client) {
     fetchSummary();
+    fetchWorkouts();
   }
 });
 
@@ -101,6 +155,7 @@ if (import.meta.client) {
     (memberId, prev) => {
       if (memberId && memberId !== prev) {
         fetchSummary();
+        fetchWorkouts();
       }
     }
   );
@@ -145,6 +200,10 @@ if (import.meta.client) {
       {{ error }}
     </v-alert>
 
+    <v-alert v-else-if="workoutError" type="error" variant="tonal" class="mb-6">
+      {{ workoutError }}
+    </v-alert>
+
     <v-skeleton-loader
       v-if="loading && !summary"
       type="card"
@@ -177,9 +236,10 @@ if (import.meta.client) {
             <v-progress-linear
               :model-value="calorieProgress"
               color="primary"
+              bg-color="#E63F31"
               height="10"
               rounded
-              class="mb-2"
+              class="mb-2 custom-progress-bar"
             />
             <div
               class="d-flex justify-space-between text-caption text-medium-emphasis"
@@ -188,20 +248,28 @@ if (import.meta.client) {
                 >순섭취 {{ calorieFormatter.format(netCalories) }} kcal</span
               >
               <span
-                >권장
+                >평균 권장
                 {{ calorieFormatter.format(summary.recommendedCalories) }}
                 kcal</span
               >
             </div>
             <v-alert
               v-if="calorieBalance !== null"
-              :type="calorieBalance > 0 ? 'warning' : 'success'"
+              :type="
+                summary.recommendedCalories - netCalories < 0
+                  ? 'warning'
+                  : 'success'
+              "
               variant="tonal"
               class="mt-4"
             >
-              순섭취량은
-              {{ calorieFormatter.format(Math.abs(calorieBalance)) }} kcal
-              {{ calorieBalance > 0 ? "초과" : "부족" }} 상태입니다.
+              평균 권장량 - 순 섭취량은
+              {{
+                calorieFormatter.format(
+                  -Math.abs(summary.recommendedCalories - netCalories)
+                )
+              }}
+              kcal 입니다.
             </v-alert>
           </v-card-text>
         </v-card>
@@ -283,11 +351,73 @@ if (import.meta.client) {
         데이터 새로고침
       </v-btn>
     </v-card>
+
+    <v-skeleton-loader
+      v-if="workoutLoading && !hasWorkoutData"
+      type="list-item"
+      class="mt-8"
+      elevation="2"
+    />
+
+    <v-card v-else-if="hasWorkoutData" elevation="2" class="mt-8">
+      <v-card-title
+        class="d-flex flex-column flex-sm-row justify-space-between align-start align-sm-center gap-2"
+      >
+        <div class="text-h6 font-weight-bold">오늘의 운동 기록</div>
+        <span
+          v-if="workoutLoadedAtText"
+          class="text-caption text-medium-emphasis"
+        >
+          {{ workoutLoadedAtText }} 기준
+        </span>
+      </v-card-title>
+      <v-divider />
+      <v-table density="comfortable">
+        <thead>
+          <tr>
+            <th class="text-left">운동명</th>
+            <th class="text-left">종류</th>
+            <th class="text-left">세트 · 반복</th>
+            <th class="text-left">중량</th>
+            <th class="text-left">거리</th>
+            <th class="text-left">시간</th>
+            <th class="text-left">기록 시간</th>
+            <th class="text-left">메모</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="workout in workouts" :key="workout.id">
+            <td>{{ workout.exerciseName }}</td>
+            <td>{{ workout.workoutType }}</td>
+            <td>{{ formatWorkoutSetInfo(workout.sets, workout.reps) }}</td>
+            <td>{{ formatWorkoutWeight(workout.weight) }}</td>
+            <td>{{ formatWorkoutDistance(workout.distanceKm) }}</td>
+            <td>{{ formatWorkoutDuration(workout.durationMinutes) }}</td>
+            <td>{{ formatDateTime(workout.workoutDate) }}</td>
+            <td>{{ workout.notes ?? "-" }}</td>
+          </tr>
+        </tbody>
+      </v-table>
+    </v-card>
+
+    <v-card v-else variant="tonal" class="mt-8 pa-6 text-center">
+      <v-icon size="48" color="primary" class="mb-3">mdi-dumbbell</v-icon>
+      <h2 class="text-h6 font-weight-bold mb-2">등록된 운동 기록이 없습니다</h2>
+      <p class="text-body-2 text-medium-emphasis mb-4">
+        운동을 기록하면 여기에서 하루 운동 데이터를 확인할 수 있습니다.
+      </p>
+      <v-btn color="primary" variant="tonal" @click="handleRefresh">
+        데이터 새로고침
+      </v-btn>
+    </v-card>
   </v-container>
 </template>
 
 <style scoped>
 .gap-2 {
   gap: 8px;
+}
+.custom-progress-bar {
+  background-color: #e63f31;
 }
 </style>
