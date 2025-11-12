@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed, onMounted, watch } from "vue";
-import { storeToRefs } from "pinia";
 import { useLoginStore } from "~/stores/loginStore";
 import { useMealStore } from "~/stores/mealStore";
 import { useWorkoutStore } from "~/stores/workoutStore";
@@ -8,17 +7,6 @@ import { useWorkoutStore } from "~/stores/workoutStore";
 const loginStore = useLoginStore();
 const mealStore = useMealStore();
 const workoutStore = useWorkoutStore();
-
-const { user, isLogin } = storeToRefs(loginStore);
-const { summary, loading, error, lastLoadedAt, calorieBalance } =
-  storeToRefs(mealStore);
-
-const {
-  workouts,
-  loading: workoutLoading,
-  error: workoutError,
-  lastLoadedAt: workoutLastLoadedAt,
-} = storeToRefs(workoutStore);
 
 const numberFormatter = new Intl.NumberFormat("ko-KR", {
   maximumFractionDigits: 1,
@@ -29,38 +17,41 @@ const calorieFormatter = new Intl.NumberFormat("ko-KR", {
 });
 
 const netCalories = computed(() => {
-  if (!summary.value) return 0;
-  return summary.value.totalCalories - summary.value.burnedCalories;
+  const summary = mealStore.summary;
+  if (!summary) return 0;
+  return summary.totalCalories - summary.burnedCalories;
 });
 
 const calorieProgress = computed(() => {
-  if (!summary.value || summary.value.recommendedCalories <= 0) return 0;
-  const ratio = (netCalories.value / summary.value.recommendedCalories) * 100;
+  const summary = mealStore.summary;
+  if (!summary || summary.recommendedCalories <= 0) return 0;
+  const ratio = (netCalories.value / summary.recommendedCalories) * 100;
   return Math.min(Math.max(Math.round(ratio), 0), 150);
 });
 
 const macroItems = computed(() => {
-  if (!summary.value) return [];
+  const summary = mealStore.summary;
+  if (!summary) return [];
   return [
     {
       key: "protein",
       label: "단백질",
-      consumed: summary.value.totalProtein,
-      recommended: summary.value.recommendedProteinRatio,
+      consumed: summary.totalProtein,
+      recommended: summary.recommendedProteinRatio,
       color: "deep-purple-accent-4",
     },
     {
       key: "carbs",
       label: "탄수화물",
-      consumed: summary.value.totalCarbs,
-      recommended: summary.value.recommendedCarbRatio,
+      consumed: summary.totalCarbs,
+      recommended: summary.recommendedCarbRatio,
       color: "blue-accent-4",
     },
     {
       key: "fat",
       label: "지방",
-      consumed: summary.value.totalFat,
-      recommended: summary.value.recommendedFatRatio,
+      consumed: summary.totalFat,
+      recommended: summary.recommendedFatRatio,
       color: "teal-accent-4",
     },
   ];
@@ -109,22 +100,22 @@ const formatWorkoutDistance = (distance: number | null) => {
 };
 
 const workoutLoadedAtText = computed(() =>
-  workoutLastLoadedAt.value ? formatDateTime(workoutLastLoadedAt.value) : null
+  workoutStore.lastLoadedAt ? formatDateTime(workoutStore.lastLoadedAt) : null
 );
 
-const hasWorkoutData = computed(() => workouts.value.length > 0);
+const hasWorkoutData = computed(() => workoutStore.workouts.length > 0);
 
 const toDateParam = (date: Date) => date.toISOString().split("T")[0];
 
 const fetchSummary = async () => {
-  const memberId = user.value?.id;
+  const memberId = loginStore.user?.id;
   console.log("memberId", memberId);
   if (!memberId) return;
   await mealStore.fetchTodaySummary(memberId);
 };
 
 const fetchWorkouts = async (targetDate?: Date) => {
-  const memberId = user.value?.id;
+  const memberId = loginStore.user?.id;
   if (!memberId) return;
 
   const requestDate = targetDate
@@ -134,10 +125,10 @@ const fetchWorkouts = async (targetDate?: Date) => {
 };
 
 const handleRefresh = async () => {
-  if (!loading.value) {
+  if (!mealStore.loading) {
     await fetchSummary();
   }
-  if (!workoutLoading.value) {
+  if (!workoutStore.loading) {
     await fetchWorkouts();
   }
 };
@@ -151,7 +142,7 @@ onMounted(() => {
 
 if (import.meta.client) {
   watch(
-    () => user.value?.id,
+    () => loginStore.user?.id,
     (memberId, prev) => {
       if (memberId && memberId !== prev) {
         fetchSummary();
@@ -177,41 +168,56 @@ if (import.meta.client) {
         <v-btn
           color="primary"
           variant="flat"
-          :disabled="!user?.id"
-          :loading="loading"
+          :disabled="!loginStore.user?.id"
+          :loading="mealStore.loading"
           @click="handleRefresh"
         >
           새로고침
         </v-btn>
         <span
-          v-if="lastLoadedAt"
+          v-if="mealStore.lastLoadedAt"
           class="text-caption text-medium-emphasis text-right"
         >
-          {{ formatDateTime(lastLoadedAt) }} 기준
+          {{ formatDateTime(mealStore.lastLoadedAt) }} 기준
         </span>
       </v-col>
     </v-row>
 
-    <v-alert v-if="!isLogin || !user" type="info" variant="tonal" class="mb-6">
+    <v-alert
+      v-if="!loginStore.isLogin || !loginStore.user"
+      type="info"
+      variant="tonal"
+      class="mb-6"
+    >
       로그인 후 개인 맞춤 영양 정보를 확인할 수 있습니다.
     </v-alert>
 
-    <v-alert v-else-if="error" type="error" variant="tonal" class="mb-6">
-      {{ error }}
+    <v-alert
+      v-else-if="mealStore.error"
+      type="error"
+      variant="tonal"
+      class="mb-6"
+    >
+      {{ mealStore.error }}
     </v-alert>
 
-    <v-alert v-else-if="workoutError" type="error" variant="tonal" class="mb-6">
-      {{ workoutError }}
+    <v-alert
+      v-else-if="workoutStore.error"
+      type="error"
+      variant="tonal"
+      class="mb-6"
+    >
+      {{ workoutStore.error }}
     </v-alert>
 
     <v-skeleton-loader
-      v-if="loading && !summary"
+      v-if="mealStore.loading && !mealStore.summary"
       type="card"
       class="mb-6"
       elevation="2"
     />
 
-    <v-row v-if="summary" dense>
+    <v-row v-if="mealStore.summary" dense>
       <v-col cols="12" md="6">
         <v-card elevation="2">
           <v-card-title class="text-h6 font-weight-bold">
@@ -223,13 +229,17 @@ if (import.meta.client) {
               <div>
                 <div class="text-caption text-medium-emphasis">섭취</div>
                 <div class="text-h6">
-                  {{ calorieFormatter.format(summary.totalCalories) }} kcal
+                  {{ calorieFormatter.format(mealStore.summary.totalCalories) }}
+                  kcal
                 </div>
               </div>
               <div class="text-right">
                 <div class="text-caption text-medium-emphasis">소모</div>
                 <div class="text-h6">
-                  {{ calorieFormatter.format(summary.burnedCalories) }} kcal
+                  {{
+                    calorieFormatter.format(mealStore.summary.burnedCalories)
+                  }}
+                  kcal
                 </div>
               </div>
             </div>
@@ -249,14 +259,16 @@ if (import.meta.client) {
               >
               <span
                 >평균 권장
-                {{ calorieFormatter.format(summary.recommendedCalories) }}
+                {{
+                  calorieFormatter.format(mealStore.summary.recommendedCalories)
+                }}
                 kcal</span
               >
             </div>
             <v-alert
-              v-if="calorieBalance !== null"
+              v-if="mealStore.calorieBalance !== null"
               :type="
-                summary.recommendedCalories - netCalories < 0
+                mealStore.summary.recommendedCalories - netCalories < 0
                   ? 'warning'
                   : 'success'
               "
@@ -266,7 +278,7 @@ if (import.meta.client) {
               평균 권장량 - 순 섭취량은
               {{
                 calorieFormatter.format(
-                  -Math.abs(summary.recommendedCalories - netCalories)
+                  -Math.abs(mealStore.summary.recommendedCalories - netCalories)
                 )
               }}
               kcal 입니다.
@@ -353,7 +365,7 @@ if (import.meta.client) {
     </v-card>
 
     <v-skeleton-loader
-      v-if="workoutLoading && !hasWorkoutData"
+      v-if="workoutStore.loading && !hasWorkoutData"
       type="list-item"
       class="mt-8"
       elevation="2"
@@ -386,7 +398,7 @@ if (import.meta.client) {
           </tr>
         </thead>
         <tbody>
-          <tr v-for="workout in workouts" :key="workout.id">
+          <tr v-for="workout in workoutStore.workouts" :key="workout.id">
             <td>{{ workout.exerciseName }}</td>
             <td>{{ workout.workoutType }}</td>
             <td>{{ formatWorkoutSetInfo(workout.sets, workout.reps) }}</td>
