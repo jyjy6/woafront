@@ -40,7 +40,9 @@ export const useWorkoutStore = defineStore("workout", () => {
     }
   };
 
-  const postWorkout = async (workoutData: Omit<WorkoutItem, 'id' | 'memberId'>) => {
+  const postWorkout = async (
+    workoutData: Omit<WorkoutItem, "id" | "memberId">
+  ) => {
     const loginStore = useLoginStore();
     const memberId = loginStore.user?.id;
 
@@ -65,9 +67,9 @@ export const useWorkoutStore = defineStore("workout", () => {
     } catch (err: unknown) {
       if (axios.isAxiosError(err)) {
         error.value =
-            err.response?.data?.message ??
-            err.response?.statusText ??
-            "운동 기록을 저장하는 데 실패했습니다.";
+          err.response?.data?.message ??
+          err.response?.statusText ??
+          "운동 기록을 저장하는 데 실패했습니다.";
       } else {
         error.value = "알 수 없는 오류가 발생했습니다.";
       }
@@ -77,6 +79,29 @@ export const useWorkoutStore = defineStore("workout", () => {
     }
   };
 
+  const fetchRecentWorkouts = async (limit: number = 1) => {
+    loading.value = true;
+    error.value = null;
+
+    try {
+      const response = await axios.get<WorkoutItem[]>("/workout/recent", {
+        params: { limit },
+      });
+      return response.data;
+    } catch (err: unknown) {
+      if (axios.isAxiosError(err)) {
+        error.value =
+          err.response?.data?.message ??
+          err.response?.statusText ??
+          "최근 운동 정보를 불러오는 데 실패했습니다.";
+      } else {
+        error.value = "알 수 없는 오류가 발생했습니다.";
+      }
+      return [];
+    } finally {
+      loading.value = false;
+    }
+  };
 
   const reset = () => {
     workouts.value = [];
@@ -92,6 +117,7 @@ export const useWorkoutStore = defineStore("workout", () => {
     lastLoadedAt,
     fetchDailyWorkouts,
     postWorkout,
+    fetchRecentWorkouts,
     reset,
   };
 });

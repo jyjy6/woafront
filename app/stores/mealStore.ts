@@ -83,6 +83,30 @@ export const useMealStore = defineStore("meal", () => {
     }
   };
 
+  const fetchRecentMeals = async (limit: number = 1) => {
+    loading.value = true;
+    error.value = null;
+
+    try {
+      const response = await axios.get<MealResponse[]>("/meal/recent", {
+        params: { limit },
+      });
+      return response.data;
+    } catch (err: unknown) {
+      if (axios.isAxiosError(err)) {
+        error.value =
+          err.response?.data?.message ??
+          err.response?.statusText ??
+          "최근 식사 정보를 불러오는 데 실패했습니다.";
+      } else {
+        error.value = "알 수 없는 오류가 발생했습니다.";
+      }
+      return [];
+    } finally {
+      loading.value = false;
+    }
+  };
+
   const reset = () => {
     summary.value = null;
     meals.value = [];
@@ -105,6 +129,7 @@ export const useMealStore = defineStore("meal", () => {
 
     fetchTodaySummary,
     postMeal,
+    fetchRecentMeals,
     reset,
   };
 });
